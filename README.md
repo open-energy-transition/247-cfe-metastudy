@@ -74,7 +74,7 @@ Second, install the necessary dependencies using `environment.yml` file. The fol
 
 ```
 conda env create -f envs/environment.yml
-conda activate 247-cfe
+conda activate 247-env
 ```
 Third, to run all the scenarios from the study, run the [snakemake](https://snakemake.readthedocs.io/en/stable/) worflow:
 
@@ -114,7 +114,7 @@ conda activate 247-env
 3. The results of the paper can be reproduced by running the [snakemake](https://snakemake.readthedocs.io/en/stable/) workflow.  The following commands will run the workflows for the paper:
 
 ```
-snakemake --cores <n> --configfile config_247cfe
+snakemake --cores <n> --configfile config_247cfe.yaml
 snakemake --cores <n> --configfile config_BackgroundSystem.yaml
 ```
 

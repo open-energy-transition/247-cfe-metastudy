@@ -2,11 +2,37 @@
 #
 # SPDX-License-Identifier: MIT
 
-import pypsa, numpy as np, pandas as pd
 from pathlib import Path
 import yaml
 import difflib
+import requests
+from tqdm import tqdm
 
+def progress_retrieve(url, file, disable=False):
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    # Hotfix - Bug, tqdm not working with disable=False
+    disable = True
+
+    if disable:
+        response = requests.get(url, headers=headers, stream=True)
+        with open(file, "wb") as f:
+            f.write(response.content)
+    else:
+        response = requests.get(url, headers=headers, stream=True)
+        total_size = int(response.headers.get("content-length", 0))
+        chunk_size = 1024
+
+        with tqdm(
+            total=total_size,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+            desc=str(file),
+        ) as t:
+            with open(file, "wb") as f:
+                for data in response.iter_content(chunk_size=chunk_size):
+                    f.write(data)
+                    t.update(len(data))
 
 def load_yaml(file_path):
     with open(file_path, "r") as file:
@@ -29,78 +55,6 @@ def compare_yaml(file1, file2):
 
 
 # compare_yaml("file1.yaml", "file2.yaml")
-
-
-def override_component_attrs():
-    # from https://github.com/PyPSA/pypsa-eur-sec/blob/93eb86eec87d34832ebc061697e289eabb38c105/scripts/solve_network.py
-    override_component_attrs = pypsa.descriptors.Dict(
-        {k: v.copy() for k, v in pypsa.components.component_attrs.items()}
-    )
-    override_component_attrs["Link"].loc["bus2"] = [
-        "string",
-        np.nan,
-        np.nan,
-        "2nd bus",
-        "Input (optional)",
-    ]
-    override_component_attrs["Link"].loc["bus3"] = [
-        "string",
-        np.nan,
-        np.nan,
-        "3rd bus",
-        "Input (optional)",
-    ]
-    override_component_attrs["Link"].loc["bus4"] = [
-        "string",
-        np.nan,
-        np.nan,
-        "4th bus",
-        "Input (optional)",
-    ]
-    override_component_attrs["Link"].loc["efficiency2"] = [
-        "static or series",
-        "per unit",
-        1.0,
-        "2nd bus efficiency",
-        "Input (optional)",
-    ]
-    override_component_attrs["Link"].loc["efficiency3"] = [
-        "static or series",
-        "per unit",
-        1.0,
-        "3rd bus efficiency",
-        "Input (optional)",
-    ]
-    override_component_attrs["Link"].loc["efficiency4"] = [
-        "static or series",
-        "per unit",
-        1.0,
-        "4th bus efficiency",
-        "Input (optional)",
-    ]
-    override_component_attrs["Link"].loc["p2"] = [
-        "series",
-        "MW",
-        0.0,
-        "2nd bus output",
-        "Output",
-    ]
-    override_component_attrs["Link"].loc["p3"] = [
-        "series",
-        "MW",
-        0.0,
-        "3rd bus output",
-        "Output",
-    ]
-    override_component_attrs["Link"].loc["p4"] = [
-        "series",
-        "MW",
-        0.0,
-        "4th bus output",
-        "Output",
-    ]
-
-    return override_component_attrs
 
 
 def mock_snakemake(rulename, **wildcards):

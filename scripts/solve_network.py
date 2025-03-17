@@ -14,7 +14,6 @@ pypsa.pf.logger.setLevel(logging.WARNING)
 
 from vresutils.costdata import annuity
 from vresutils.benchmark import memory_logger
-from _helpers import override_component_attrs
 
 from typing import Dict, List, Tuple, Any
 
@@ -419,7 +418,7 @@ def strip_network(n, config) -> None:
     nodes_to_keep.extend(new_nodes)
     nodes_to_keep.extend(config["additional_nodes"])
 
-    n.mremove("Bus", n.buses.index.symmetric_difference(nodes_to_keep))
+    n.remove("Bus", n.buses.index.symmetric_difference(nodes_to_keep))
 
     # make sure lines are kept
     n.lines.carrier = "AC"
@@ -437,7 +436,7 @@ def strip_network(n, config) -> None:
             location_boolean = c.df.bus.isin(nodes_to_keep)
         to_keep = c.df.index[location_boolean & c.df.carrier.isin(carrier_to_keep)]
         to_drop = c.df.index.symmetric_difference(to_keep)
-        n.mremove(c.name, to_drop)
+        n.remove(c.name, to_drop)
 
 
 def shutdown_lineexp(n: pypsa.Network) -> None:
@@ -1186,8 +1185,8 @@ def solve_network(
             vls_snd = vls.query("bus0==@name").index
             vls_rec = vls.query("bus1==@name").index
 
-            snd = n.model["Link-p"].loc[:, vls_snd].sum(dims=["Link"])
-            rec = n.model["Link-p"].loc[:, vls_rec].sum(dims=["Link"])
+            snd = n.model["Link-p"].loc[:, vls_snd].sum(dim=["Link"])
+            rec = n.model["Link-p"].loc[:, vls_rec].sum(dim=["Link"])
             load = n.loads_t.p_set[name + " load"]
             # requested_load = load + rec - snd
             rhs_up = load * (1 + delta) - load
@@ -1198,7 +1197,7 @@ def solve_network(
 
     def shifts_conservation(n):
         vls = n.generators[n.generators.carrier == "virtual_link"]
-        shifts = n.model["Generator-p"].loc[:, vls.index].sum(dims=["Generator"])
+        shifts = n.model["Generator-p"].loc[:, vls.index].sum(dim=["Generator"])
         # sum of loads shifts across all DC are equal 0 per time period
         n.model.add_constraints(shifts == 0, name=f"vl_limit-upper_{name}")
 
@@ -1211,8 +1210,8 @@ def solve_network(
             dsm_delayin = dsm.query("bus0==@name").index
             dsm_delayout = dsm.query("bus1==@name").index
 
-            delayin = n.model["Link-p"].loc[:, dsm_delayin].sum(dims=["Link"])
-            delayout = n.model["Link-p"].loc[:, dsm_delayout].sum(dims=["Link"])
+            delayin = n.model["Link-p"].loc[:, dsm_delayin].sum(dim=["Link"])
+            delayout = n.model["Link-p"].loc[:, dsm_delayout].sum(dim=["Link"])
 
             load = n.loads_t.p_set[name + " load"]
             rhs_up = load * (1 + delta) - load
@@ -1232,8 +1231,8 @@ def solve_network(
             dsm_link_delayout = dsm.query("bus0==@name").index
             dsm_link_delayin = dsm.query("bus1==@name").index
 
-            delayout = n.model["Link-p"].loc[:, dsm_link_delayout].sum(dims=["Link"])
-            delayin = n.model["Link-p"].loc[:, dsm_link_delayin].sum(dims=["Link"])
+            delayout = n.model["Link-p"].loc[:, dsm_link_delayout].sum(dim=["Link"])
+            delayin = n.model["Link-p"].loc[:, dsm_link_delayin].sum(dim=["Link"])
 
             daily_outs = delayout.groupby("snapshot.dayofyear").sum()
             daily_ins = delayin.groupby("snapshot.dayofyear").sum()
@@ -1256,10 +1255,10 @@ def solve_network(
             dsm_delayin = dsm.query("bus0==@name").index
             dsm_delayout = dsm.query("bus1==@name").index
 
-            snd = n.model["Link-p"].loc[:, vls_snd].sum(dims=["Link"])
-            rec = n.model["Link-p"].loc[:, vls_rec].sum(dims=["Link"])
-            delayin = n.model["Link-p"].loc[:, dsm_delayin].sum(dims=["Link"])
-            delayout = n.model["Link-p"].loc[:, dsm_delayout].sum(dims=["Link"])
+            snd = n.model["Link-p"].loc[:, vls_snd].sum(dim=["Link"])
+            rec = n.model["Link-p"].loc[:, vls_rec].sum(dim=["Link"])
+            delayin = n.model["Link-p"].loc[:, dsm_delayin].sum(dim=["Link"])
+            delayout = n.model["Link-p"].loc[:, dsm_delayout].sum(dim=["Link"])
 
             load = n.loads_t.p_set[name + " load"]
             # requested_load = load + rec - snd
@@ -1660,7 +1659,6 @@ if __name__ == "__main__":
     # When running via snakemake
     n = pypsa.Network(
         timescope(year)["network_file"],
-        override_component_attrs=override_component_attrs(),
     )
 
     Nyears = 1  # years in simulation

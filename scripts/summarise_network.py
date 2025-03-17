@@ -5,7 +5,6 @@
 import pypsa, numpy as np, pandas as pd
 import yaml
 from solve_network import palette
-from _helpers import override_component_attrs
 
 
 def weighted_avg(cfe, weights):
@@ -618,7 +617,7 @@ def summarise_network(n, policy, tech_palette):
 
         ### collect data
         data = n.statistics.optimal_capacity(
-            bus_carrier="AC", groupby=n.statistics.groupers.get_bus_and_carrier
+            bus_carrier="AC", groupby=["bus", "carrier"]
         ).round(1)
         data = data.droplevel(0)
         df_reset = data.reset_index()
@@ -832,9 +831,7 @@ if __name__ == "__main__":
     print(f"Summary for flexibility: {flexibility}")
 
     # Read data
-    n = pypsa.Network(
-        snakemake.input.network, override_component_attrs=override_component_attrs()
-    )
+    n = pypsa.Network(snakemake.input.network)
 
     grid_cfe_df = pd.read_csv(
         snakemake.input.grid_cfe, index_col=0, parse_dates=True, header=[0, 1]

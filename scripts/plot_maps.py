@@ -76,7 +76,7 @@ def plot_map(
     # Drop data center nodes
     for name in datacenters:
         if name in n.buses.index:
-            n.mremove("Bus", [name])
+            n.remove("Bus", [name])
 
     # Empty dataframe indexed with electrical buses
     index = pd.DataFrame(index=n.buses.index)
@@ -259,7 +259,7 @@ def plot_datacenters(network, datacenters):
     # Drop data center nodes
     for name in datacenters:
         if name in n.buses.index:
-            n.mremove("Bus", [name])
+            n.remove("Bus", [name])
 
     # Load the geometries of datacenters
     world = gpd.read_file(gpd.datasets.get_path("naturalearth_lowres"))

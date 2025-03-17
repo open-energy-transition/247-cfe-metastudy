@@ -1,8 +1,4 @@
 from shutil import copyfile, move
-from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
-
-HTTP = HTTPRemoteProvider()
-
 
 configfile: "config.yaml"
 
@@ -14,10 +10,7 @@ wildcard_constraints:
 RDIR = os.path.join(config["results_dir"], config["run"])
 RUN = config["run"]
 
-# Technology data inputs
-version = config["technology_data"]["version"]
 year = config["technology_data"]["year"]
-url = f"https://raw.githubusercontent.com/PyPSA/technology-data/{version}/outputs/costs_{year}.csv"
 
 
 rule merge_all_plots:
@@ -154,15 +147,15 @@ rule copy_config:
 if config.get("retrieve_cost_data", True):
 
     rule retrieve_cost_data:
-        input:
-            HTTP.remote(url, keep_local=True),
+        params:
+            version=config["technology_data"]["version"],
         output:
             f"input/costs_{year}.csv",
-        # log: f"logs/{RDIR}retrieve_cost_data_{year}.log"
         resources:
             mem_mb=1000,
-        run:
-            move(input[0], output[0])
+        retries: 2
+        script:
+            "scripts/retrieve_cost_data.py"
 
 
 # additional rules for cluster communication -> not included into a workflow
