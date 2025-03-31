@@ -13,10 +13,10 @@ results_dir: "results"
 # Data dependencies
 
 # Networks retrieved from ../pypsa-eur/results/<run>/prenetworks-brownfield
-n_2025_1H: "input/elec_s_37_lv1.0__1H-B-solar+p3_2025.nc"
-n_2030_1H: "input/elec_s_37_lv1.0__1H-B-solar+p3_2030.nc"
-n_2025_3H: "input/elec_s_37_lv1.0__3H-B-solar+p3_2025.nc"
-n_2030_3H: "input/elec_s_37_lv1.0__3H-B-solar+p3_2030.nc"
+#n_2025_1H: "input/elec_s_37_lv1.0__1H-B-solar+p3_2025.nc"
+#n_2030_1H: "input/elec_s_37_lv1.0__1H-B-solar+p3_2030.nc"
+#n_2025_3H: "input/elec_s_37_lv1.0__3H-B-solar+p3_2025.nc"
+#n_2030_3H: "input/elec_s_37_lv1.0__3H-B-solar+p3_2030.nc"
 
 # Retrieve technology data <version> for <year>
 # Source https://github.com/PyPSA/technology-data
@@ -53,7 +53,7 @@ scenario:
                 # '25',
                 ] # participation share of CI load per bidding zone that commit to voluntary CFE procurement [percentage]
   year: [
-          "2025",
+          "2035",
           # "2030"
          ] # controls both the brownfield fleet and tech costs projection
 
@@ -82,24 +82,24 @@ plot_timeseries: False
 ###################
 # Fixed settings
 
-node_suffixes_to_keep: ["H2","battery"] #"low voltage","home battery"]
-carrier_to_keep: [ #generators
-                  "offwind","offwind-ac","offwind-dc","solar", "onwind","ror", #"solar rooftop",
-                  #storage units
-                  "PHS","hydro",
-                  #lines, links
-                  "AC", "DC",
-                  #links
-                  "nuclear", "uranium", "gas","OCGT","CCGT","oil", "lignite", "coal",
-                  "H2 Electrolysis","H2 Fuel Cell","H2 pipeline",
-                  "battery charger","battery discharger", #"home battery charger","home battery discharger",
-                  "urban central solid biomass CHP", #"electricity distribution grid",
-                  #Stores
-                  "H2 Store","co2","co2 stored","battery", "solid biomass", #"home battery"
-                  #Loads ("industry electricity" is included)
-                  "electricity"
-                    ]
-additional_nodes: ["EU oil","EU gas", "EU lignite", "EU coal", "EU uranium", "EU solid biomass", "co2 atmosphere","co2 stored"]
+#node_suffixes_to_keep: ["H2","battery"] #"low voltage","home battery"]
+#carrier_to_keep: [ #generators
+#                  "offwind","offwind-ac","offwind-dc","solar", "onwind","ror", #"solar rooftop",
+#                  #storage units
+#                  "PHS","hydro",
+#                  #lines, links
+#                  "AC", "DC",
+#                  #links
+#                  "nuclear", "uranium", "gas","OCGT","CCGT","oil", "lignite", "coal",
+#                  "H2 Electrolysis","H2 Fuel Cell","H2 pipeline",
+#                  "battery charger","battery discharger", #"home battery charger","home battery discharger",
+#                  "urban central solid biomass CHP", #"electricity distribution grid",
+#                  #Stores
+#                  "H2 Store","co2","co2 stored","battery", "solid biomass", #"home battery"
+#                  #Loads ("industry electricity" is included)
+#                  "electricity"
+#                    ]
+#additional_nodes: ["EU oil","EU gas", "EU lignite", "EU coal", "EU uranium", "EU solid biomass", "co2 atmosphere","co2 stored"]
 
 
 global:
@@ -137,6 +137,34 @@ costs:
   ironair_capacity_2030: 1700 # dummy -> value is endogenised via learning curve
   ironair_energy_2030: 5 # dummy -> value is endogenised via learning curve
   ironair_duration: 100 # P/E ratio of iron-air battery
+  
+  social_discountrate: 0.02
+  fill_values:
+    FOM: 0
+    VOM: 0
+    efficiency: 1
+    fuel: 0
+    investment: 0
+    lifetime: 25
+    "CO2 intensity": 0
+    "discount rate": 0.07
+  # Marginal and capital costs can be overwritten
+  # capital_cost:
+  #   onwind: 500
+  marginal_cost:
+    solar: 0.01
+    onwind: 0.015
+    offwind: 0.015
+    hydro: 0.
+    H2: 0.
+    electrolysis: 0.
+    fuel cell: 0.
+    battery: 0.
+    battery inverter: 0.
+  emission_prices:
+    enable: false
+    co2: 0.
+    co2_monthly_prices: false
 
 #~size of C&I electricity load per country https://ec.europa.eu/eurostat/cache/infographs/energy_balances/enbal.html
 ci_load:

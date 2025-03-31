@@ -23,7 +23,7 @@ n_2030_3H: "input/elec_s_37_lv1.0__3H-B-solar+p3_2030.nc"
 retrieve_cost_data: true
 technology_data:
   year: 2025
-  version: v0.6.2
+  version: v0.11.0
 
 ###################
 # Scenario controls

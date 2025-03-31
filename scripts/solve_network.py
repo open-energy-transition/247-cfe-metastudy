@@ -38,32 +38,32 @@ def palette(tech_palette: str) -> tuple:
         },
         "p2": {
             "clean_techs": ["onwind", "solar"],
-            "storage_techs": ["battery", "ironair"],  # "hydrogen"
+            "storage_techs": ["battery", "iron-air battery"],  # "hydrogen"
             "storage_chargers": [
                 "battery charger",
-                "ironair charger",
+                "iron-air battery charge",
             ],  # "H2 Electrolysis"
             "storage_dischargers": [
                 "battery discharger",
-                "ironair discharger",
+                "iron-air battery discharge",
             ],  # "H2 Fuel Cell"
         },
         "p3": {
-            "clean_techs": ["onwind", "solar", "allam_ccs"],
+            "clean_techs": ["onwind", "solar"], # "allam"
             "storage_techs": ["battery"],
             "storage_chargers": ["battery charger"],
             "storage_dischargers": ["battery discharger"],
         },
         "p4": {
-            "clean_techs": ["onwind", "solar", "allam_ccs"],
-            "storage_techs": ["battery", "ironair"],  # "hydrogen"
+            "clean_techs": ["onwind", "solar"], # "allam"
+            "storage_techs": ["battery", "iron-air battery"],  # "hydrogen"
             "storage_chargers": [
                 "battery charger",
-                "ironair charger",
+                "iron-air battery charge",
             ],  # "H2 Electrolysis"
             "storage_dischargers": [
                 "battery discharger",
-                "ironair discharger",
+                "iron-air battery discharge",
             ],  # "H2 Fuel Cell"
         },
     }
@@ -99,56 +99,24 @@ def geoscope(zone: str):
 
     NB zone is used as a wildcard, while area as a switcher option.
     """
-    # A few toy regional networks for test & play purposes
-    IRELAND = ["IE5 0", "GB0 0", "GB5 0"]
-    GERMANY = [
-        "DE1 0",
-        # "BE1 0",
-        # "NO2 0",
-        # "DK1 0",
-        # "DK2 0",
-        # "SE2 0",
-        # "GB0 0",
-        # "FR1 0",
-        # "LU1 0",
-        # "NL1 0",
-        # "PL1 0",
-        # "AT1 0",
-        # "CH1 0",
-        # "CZ1 0",
-    ]
-    DKDE = ["DE1 0", "DK1 0", "DK2 0", "PL1 0"]
-    IEDK = (
-        IRELAND
-        + ["DK1 0", "DK2 0"]
-        + ["FR1 0", "LU1 0", "DE1 0", "BE1 0", "NL1 0", "NO2 0", "SE2 0"]
-    )
+    if zone == "EU":
+        zone = n.buses.query("carrier == 'AC'").country.unique()
+    else:
+        zone = [zone]
 
-    # Full geographical scope
-    EU = n.buses[n.buses["carrier"] == "AC"].index.tolist()
-
-    basenodes_to_keep = {
-        "IE": IRELAND,
-        "DE": GERMANY,
-        "IEDK": IEDK,
-        "DKDE": DKDE,
-        "EU": EU,
-    }.get(zone)
-
-    if not basenodes_to_keep:
-        print(f"'zone' wildcard cannot be {zone}.")
-        sys.exit()
-
-    country_nodes = {
-        "IE5 0": ["IE5 0"],
-        "DK1 0": ["DK1 0", "DK2 0"],
-        "DE1 0": ["DE1 0"],
-        "NL1 0": ["NL1 0"],
-        "GB0 0": ["GB0 0", "GB5 0"],
-        "FR1 0": ["FR1 0"],
-    }
-    country_nodes = {k: v for k, v in country_nodes.items() if k in basenodes_to_keep}
-
+    # Perform queries and combine results into a single set
+    bus_core = n.buses.query("country.isin(@zone)", engine="python").index.unique()
+    combined_lines = n.lines.query("bus1.isin(@bus_core) | bus0.isin(@bus_core)", engine="python")
+    combined_links = n.links.query("bus1.isin(@bus_core) | bus0.isin(@bus_core)", engine="python")
+    
+    # Combine the results of bus0 and bus1 in lines and links
+    bus_connect = (set(combined_lines.bus0.unique()) | set(combined_lines.bus1.unique()) |
+                   set(combined_links.bus0.unique()) | set(combined_links.bus1.unique()))
+    
+    zone_all = set(n.buses.country[bus] for bus in bus_connect)
+    basenodes_to_keep = n.buses.query("country.isin(@zone_all)").index.unique()
+    country_nodes = n.buses.query("country.isin(@zone) & carrier == 'AC'").index.unique()
+    
     return {"basenodes_to_keep": basenodes_to_keep, "country_nodes": country_nodes}
 
 
@@ -246,160 +214,48 @@ def load_profile(
 
     return profile
 
-
-def prepare_costs(
-    cost_file: str,
-    USD_to_EUR: float,
-    discount_rate: float,
-    lifetime: int,
-    year: str,
-    config: Dict[str, Any],
-    Nyears: int = 1,
-) -> pd.DataFrame:
+# from add_electricity.py
+def calculate_annuity(n, r):
     """
-    Reads in a cost file and prepares the costs for use in the model.
+    Calculate the annuity factor for an asset with lifetime n years and.
 
-    Args:
-    - cost_file (str): path to the cost file
-    - USD_to_EUR (float): conversion rate from USD to EUR
-    - discount_rate (float): discount rate to use for calculating annuity factor
-    - Nyears (int): number of years to run the model
-    - lifetime (float): lifetime of the asset in years
-    - year (int): year of the model run
-
-    Returns:
-    - costs (pd.DataFrame): a DataFrame containing the prepared costs
+    discount rate of r, e.g. annuity(20, 0.05) * 20 = 1.6
     """
+    if isinstance(r, pd.Series):
+        return pd.Series(1 / n, index=r.index).where(
+            r == 0, r / (1.0 - 1.0 / (1.0 + r) ** n)
+        )
+    elif r > 0:
+        return r / (1.0 - 1.0 / (1.0 + r) ** n)
+    else:
+        return 1 / n
 
+# from prepare_sector_networks.py
+def prepare_costs(cost_file, params, nyears):
     # set all asset costs and other parameters
     costs = pd.read_csv(cost_file, index_col=[0, 1]).sort_index()
 
     # correct units to MW and EUR
     costs.loc[costs.unit.str.contains("/kW"), "value"] *= 1e3
-    costs.loc[costs.unit.str.contains("USD"), "value"] *= USD_to_EUR
 
     # min_count=1 is important to generate NaNs which are then filled by fillna
     costs = (
-        costs.loc[:, "value"]
-        .unstack(level=1)
-        .groupby("technology")
-        .sum(min_count=1)
-        .fillna(
-            {
-                "CO2 intensity": 0,
-                "FOM": 0,
-                "VOM": 0,
-                "discount rate": discount_rate,
-                "efficiency": 1,
-                "fuel": 0,
-                "investment": 0,
-                "lifetime": lifetime,
-            }
-        )
+        costs.loc[:, "value"].unstack(level=1).groupby("technology").sum(min_count=1)
     )
 
-    # Add advanced technologies
-    # ironair storage
-    data_ironair_storage = pd.Series(
-        {
-            "FOM": 0,
-            "VOM": 0,
-            "discount rate": discount_rate,
-            "investment": config["costs"][f"ironair_energy_{year}"]
-            * 1e3
-            * config["costs"]["USD2023_to_EUR2023"],
-            "lifetime": 15.0,
-        },
-        name="ironair storage",
-    )
+    costs = costs.fillna(params["fill_values"])
 
-    data_ironair_inverter = pd.Series(
-        {
-            "FOM": 1,  # %/year
-            "VOM": 0,
-            "discount rate": discount_rate,
-            "investment": config["costs"][f"ironair_capacity_{year}"]
-            * 1e3
-            * config["costs"]["USD2023_to_EUR2023"],
-            "discharge_efficiency": 0.60,
-            "charge_efficiency": 0.71,
-            "lifetime": 15.0,
-        },
-        name="ironair inverter",
-    )
+    def annuity_factor(v):
+        return calculate_annuity(v["lifetime"], v["discount rate"]) + v["FOM"] / 100
 
-    # Advanced nuclear
-    data_nuc = pd.Series(
-        {
-            "CO2 intensity": 0,
-            "FOM": costs.loc["nuclear"]["FOM"],
-            "VOM": costs.loc["nuclear"]["VOM"],
-            "discount rate": discount_rate,
-            "efficiency": 0.36,
-            "fuel": costs.loc["nuclear"]["fuel"],
-            "investment": config["costs"]["adv_nuclear_overnight"]
-            * 1e3
-            * config["costs"]["USD2021_to_EUR2021"],
-            "lifetime": 40.0,
-        },
-        name="adv_nuclear",
-    )
-
-    # Advanced geothermal
-    adv_geo_overnight = config["costs"][f"adv_geo_overnight_{year}"]
-    data_geo = pd.Series(
-        {
-            "CO2 intensity": 0,
-            "FOM": 0,
-            "VOM": 0,
-            "discount rate": discount_rate,
-            "efficiency": 1,
-            "fuel": 0,
-            "investment": adv_geo_overnight * 1e3 * 1,
-            "lifetime": 30.0,
-        },
-        name="adv_geothermal",
-    )
-
-    # Allam cycle ccs
-    allam_ccs_overnight = config["costs"][f"allam_ccs_overnight_{year}"]
-    data_allam = pd.Series(
-        {
-            "CO2 intensity": 0,
-            "FOM": 0,  # %/year
-            "FOM-abs": 33000,  # $/MW-yr
-            "VOM": 3.2,  # EUR/MWh
-            "co2_seq": 40,  # $/ton
-            "discount rate": discount_rate,
-            "efficiency": 0.54,
-            "fuel": config["costs"]["price_gas"],
-            "investment": allam_ccs_overnight * 1e3 * 1,
-            "lifetime": 30.0,
-        },
-        name="allam_ccs",
-    )
-
-    tech_list = [
-        data_ironair_storage,
-        data_ironair_inverter,
-        data_nuc,
-        data_geo,
-        data_allam,
-    ]
-    for tech in tech_list:
-        costs = pd.concat([costs, tech.to_frame().transpose()], ignore_index=False)
-
-    annuity_factor = (
-        lambda v: annuity(v["lifetime"], v["discount rate"]) + v["FOM"] / 100
-    )
     costs["fixed"] = [
-        annuity_factor(v) * v["investment"] * Nyears for _, v in costs.iterrows()
+        annuity_factor(v) * v["investment"] * nyears for i, v in costs.iterrows()
     ]
 
     return costs
 
 
-def strip_network(n, config) -> None:
+def strip_network(n, zone) -> None:
     """
     Removes unnecessary components from a pypsa network.
 
@@ -411,19 +267,10 @@ def strip_network(n, config) -> None:
     """
     nodes_to_keep = geoscope(zone)["basenodes_to_keep"]
 
-    new_nodes = [
-        f"{b} {s}" for b in nodes_to_keep for s in config["node_suffixes_to_keep"]
-    ]
-
-    nodes_to_keep.extend(new_nodes)
-    nodes_to_keep.extend(config["additional_nodes"])
-
     n.remove("Bus", n.buses.index.symmetric_difference(nodes_to_keep))
 
     # make sure lines are kept
     n.lines.carrier = "AC"
-
-    carrier_to_keep = config["carrier_to_keep"]
 
     for c in n.iterate_components(
         ["Generator", "Link", "Line", "Store", "StorageUnit", "Load"]
@@ -434,7 +281,7 @@ def strip_network(n, config) -> None:
             )
         else:
             location_boolean = c.df.bus.isin(nodes_to_keep)
-        to_keep = c.df.index[location_boolean & c.df.carrier.isin(carrier_to_keep)]
+        to_keep = c.df.index[location_boolean]
         to_drop = c.df.index.symmetric_difference(to_keep)
         n.remove(c.name, to_drop)
 
@@ -571,58 +418,63 @@ def co2_policy(n, year: str, config: Dict[str, Any]) -> None:
         n.global_constraints.drop("CO2Limit", inplace=True)
         co2_price = config["global"][f"co2_price_{year}"]
         print(f"Setting CO2 price to {co2_price}")
-        for carrier in ["coal", "oil", "gas", "lignite"]:
+        for carrier in ["coal", "gas", "lignite"]:
             n.generators.at[f"EU {carrier}", "marginal_cost"] += (
                 co2_price * costs.at[carrier, "CO2 intensity"]
             )
+        
+        # special for oil:
+        n.generators.at[f"EU oil primary", "marginal_cost"] += (
+            co2_price * costs.at["oil", "CO2 intensity"]
+        )
 
 
 def add_clean_techs(n: pypsa.Network, year: str, learning: float) -> None:
 
-    techs_to_add = ["ironair"]  # only ironair for now
+    techs_to_add = ["iron-air battery"]  # only ironair for now
 
     for location in locations:
-        if "ironair" in techs_to_add:
-            n.add("Bus", f"{location} ironair", carrier="ironair bus")
+        if "iron-air battery" in techs_to_add:
+            n.add("Bus", f"{location} iron-air battery", carrier="iron-air battery bus")
 
             n.add(
                 "Store",
-                f"{location} ironair storage-{year}",
-                bus=f"{location} ironair",
+                f"{location} iron-air battery-{year}",
+                bus=f"{location} iron-air battery",
                 e_cyclic=True,
                 e_nom_extendable=True,
-                carrier="ironair storage",
-                capital_cost=costs.loc["ironair storage"]["fixed"]
+                carrier="iron-air battery",
+                capital_cost=costs.loc["iron-air battery"]["fixed"]
                 * learning
                 * float(participation)
                 / 100,  # see config_ref.yaml comment
-                lifetime=costs.loc["ironair storage"]["lifetime"],
+                lifetime=costs.loc["iron-air battery"]["lifetime"],
             )
 
             n.add(
                 "Link",
-                f"{location} ironair charger-{year}",
+                f"{location} iron-air battery charge-{year}",
                 bus0=location,
-                bus1=f"{location} ironair",
-                carrier="ironair charger",
-                efficiency=costs.loc["ironair inverter"]["charge_efficiency"],
-                capital_cost=costs.loc["ironair inverter"]["fixed"]
+                bus1=f"{location} iron-air battery",
+                carrier="iron-air battery charge",
+                efficiency=costs.loc["iron-air battery charge"]["efficiency"],
+                capital_cost=costs.loc["iron-air battery charge"]["fixed"]
                 * learning
                 * float(participation)
                 / 100,  # see config_ref.yaml comment,
                 p_nom_extendable=True,
-                lifetime=costs.loc["ironair inverter"]["lifetime"],
+                lifetime=costs.loc["iron-air battery charge"]["lifetime"],
             )
 
             n.add(
                 "Link",
-                f"{location} ironair discharger-{year}",
-                bus0=f"{location} ironair",
+                f"{location} iron-air battery discharge-{year}",
+                bus0=f"{location} iron-air battery",
                 bus1=location,
-                carrier="ironair discharger",
-                efficiency=costs.loc["ironair inverter"]["discharge_efficiency"],
+                carrier="iron-air battery discharge",
+                efficiency=costs.loc["iron-air battery discharge"]["efficiency"],
                 p_nom_extendable=True,
-                lifetime=costs.loc["ironair inverter"]["lifetime"],
+                lifetime=costs.loc["iron-air battery discharge"]["lifetime"],
             )
 
 
@@ -703,22 +555,21 @@ def add_ci(n: pypsa.Network, year: str) -> None:
                 lifetime=costs.loc["adv_nuclear"]["lifetime"],
             )
 
-        if "allam_ccs" in clean_techs:
+        if "allam" in clean_techs:
             n.add(
                 "Generator",
-                f"{name} allam_ccs",
+                f"{name} allam",
                 bus=name,
                 carrier="gas",
-                capital_cost=costs.loc["allam_ccs"]["fixed"]
-                + costs.loc["allam_ccs"]["FOM-abs"],
-                marginal_cost=costs.loc["allam_ccs"]["VOM"]
-                + costs.loc["allam_ccs"]["fuel"] / costs.loc["allam_ccs"]["efficiency"]
-                + costs.loc["allam_ccs"]["co2_seq"]
+                capital_cost=costs.loc["allam"]["fixed"],
+                marginal_cost=costs.loc["allam"]["VOM"]
+                + costs.loc["allam"]["fuel"] / costs.loc["allam"]["efficiency"]
+                + costs.loc["allam"]["co2_seq"]
                 * costs.at["gas", "CO2 intensity"]
-                / costs.loc["allam_ccs"]["efficiency"],
+                / costs.loc["allam"]["efficiency"],
                 p_nom_extendable=True if policy == "cfe" else False,
-                lifetime=costs.loc["allam_ccs"]["lifetime"],
-                efficiency=costs.loc["allam_ccs"]["efficiency"],
+                lifetime=costs.loc["allam"]["lifetime"],
+                efficiency=costs.loc["allam"]["efficiency"],
             )
 
         if "adv_geothermal" in clean_techs:
@@ -761,12 +612,8 @@ def add_ci(n: pypsa.Network, year: str) -> None:
                 e_cyclic=True,
                 e_nom_extendable=True if policy == "cfe" else False,
                 carrier="battery",
-                capital_cost=n.stores.at[
-                    f"{location} battery" + "-{}".format(year), "capital_cost"
-                ],
-                lifetime=n.stores.at[
-                    f"{location} battery" + "-{}".format(year), "lifetime"
-                ],
+                capital_cost=costs.at["battery storage", "fixed"],
+                lifetime=costs.at["battery storage", "lifetime"],
             )
 
             n.add(
@@ -775,16 +622,10 @@ def add_ci(n: pypsa.Network, year: str) -> None:
                 bus0=name,
                 bus1=f"{name} battery",
                 carrier="battery charger",
-                efficiency=n.links.at[
-                    f"{location} battery charger" + "-{}".format(year), "efficiency"
-                ],
-                capital_cost=n.links.at[
-                    f"{location} battery charger" + "-{}".format(year), "capital_cost"
-                ],
-                p_nom_extendable=True if policy == "cfe" else False,
-                lifetime=n.links.at[
-                    f"{location} battery charger" + "-{}".format(year), "lifetime"
-                ],
+                efficiency=costs.at["battery inverter", "efficiency"] ** 0.5,
+                capital_cost=costs.at["battery inverter", "fixed"],
+                p_nom_extendable=True,
+                lifetime=costs.at["battery inverter", "lifetime"],
             )
 
             n.add(
@@ -793,54 +634,47 @@ def add_ci(n: pypsa.Network, year: str) -> None:
                 bus0=f"{name} battery",
                 bus1=name,
                 carrier="battery discharger",
-                efficiency=n.links.at[
-                    f"{location} battery discharger" + "-{}".format(year), "efficiency"
-                ],
-                marginal_cost=n.links.at[
-                    f"{location} battery discharger" + "-{}".format(year),
-                    "marginal_cost",
-                ],
-                p_nom_extendable=True if policy == "cfe" else False,
-                lifetime=n.links.at[
-                    f"{location} battery discharger" + "-{}".format(year), "lifetime"
-                ],
+                efficiency=costs.at["battery inverter", "efficiency"] ** 0.5,
+                marginal_cost= 0., #options["marginal_cost_storage"]
+                p_nom_extendable=True,
+                lifetime=costs.at["battery inverter", "lifetime"],
             )
 
-        if "ironair" in storage_techs:
-            n.add("Bus", f"{name} ironair", carrier="pure_magic")
+        if "iron-air battery" in storage_techs:
+            n.add("Bus", f"{name} iron-air battery", carrier="pure_magic")
 
             n.add(
                 "Store",
-                f"{name} ironair",
-                bus=f"{name} ironair",
+                f"{name} iron-air battery",
+                bus=f"{name} iron-air battery",
                 e_cyclic=True,
                 e_nom_extendable=True if policy == "cfe" else False,
                 carrier="pure_magic",
-                capital_cost=costs.loc["ironair storage"]["fixed"],
-                lifetime=costs.loc["ironair storage"]["lifetime"],
+                capital_cost=costs.loc["iron-air battery"]["fixed"],
+                lifetime=costs.loc["iron-air battery"]["lifetime"],
             )
 
             n.add(
                 "Link",
-                f"{name} ironair charger",
+                f"{name} iron-air battery charge",
                 bus0=name,
-                bus1=f"{name} ironair",
+                bus1=f"{name} iron-air battery",
                 carrier="pure_magic",
-                efficiency=costs.loc["ironair inverter"]["charge_efficiency"],
-                capital_cost=costs.loc["ironair inverter"]["fixed"],
+                efficiency=costs.loc["iron-air battery charge"]["efficiency"],
+                capital_cost=costs.loc["iron-air battery charge"]["fixed"],
                 p_nom_extendable=True if policy == "cfe" else False,
-                lifetime=costs.loc["ironair inverter"]["lifetime"],
+                lifetime=costs.loc["iron-air battery charge"]["lifetime"],
             )
 
             n.add(
                 "Link",
-                f"{name} ironair discharger",
-                bus0=f"{name} ironair",
+                f"{name} iron-air battery discharge",
+                bus0=f"{name} iron-air battery",
                 bus1=name,
                 carrier="pure_magic",
-                efficiency=costs.loc["ironair inverter"]["discharge_efficiency"],
+                efficiency=costs.loc["iron-air battery discharge"]["efficiency"],
                 p_nom_extendable=True if policy == "cfe" else False,
-                lifetime=costs.loc["ironair inverter"]["lifetime"],
+                lifetime=costs.loc["iron-air battery discharge"]["lifetime"],
             )
 
             # n.add(
@@ -1359,7 +1193,7 @@ def solve_network(
 
             # Note equality sign
             n.model.add_constraints(
-                lhs == penetration * total_load, name=f"100RES_annual_matching_{name}"
+                lhs == penetration * total_load, name=f"RES_annual_matching_{name}"
             )
 
     def country_res_constraints(n):
@@ -1425,7 +1259,7 @@ def solve_network(
             if country_buses.empty:
                 continue
 
-            country_loads = n.loads.index[n.loads.bus.isin(country_buses)]
+            country_loads = n.loads.index[n.loads.bus.isin(country_buses) & n.loads.carrier.isin(['electricity'])]
             country_res_gens = n.generators.index[
                 n.generators.bus.isin(country_buses)
                 & n.generators.carrier.isin(grid_res_techs)
@@ -1487,8 +1321,8 @@ def solve_network(
         """
         Add constraint ensuring that charger = discharger for ironair battery:
         """
-        discharger_bool = n.links.index.str.contains("ironair discharger")
-        charger_bool = n.links.index.str.contains("ironair charger")
+        discharger_bool = n.links.index.str.contains("iron-air battery charge")
+        charger_bool = n.links.index.str.contains("iron-air battery discharge")
 
         dischargers_ext = n.links[discharger_bool].query("p_nom_extendable").index
         chargers_ext = n.links[charger_bool].query("p_nom_extendable").index
@@ -1499,7 +1333,7 @@ def solve_network(
             - n.model["Link-p_nom"].loc[dischargers_ext] * eff
         )
 
-        n.model.add_constraints(lhs == 0, name="Ironair-inverter_ratio")
+        n.model.add_constraints(lhs == 0, name="Iron-air-inverter_ratio")
 
     def add_ironair_duration_fix(n):
         """
@@ -1507,10 +1341,10 @@ def solve_network(
         (the only commercial ironair battery product has fixed duration)
         """
 
-        energy_bool = n.stores.index.str.contains("ironair")
+        energy_bool = n.stores.index.str.contains("iron-air battery")
         energy_ext = n.stores[energy_bool].query("e_nom_extendable").index
 
-        charger_bool = n.links.index.str.contains("ironair charger")
+        charger_bool = n.links.index.str.contains("iron-air battery charge")
         chargers_ext = n.links[charger_bool].query("p_nom_extendable").index
 
         expr = (
@@ -1519,7 +1353,7 @@ def solve_network(
             * snakemake.config["costs"]["ironair_duration"]
         )
 
-        n.model.add_constraints(expr, name="Ironair-duration")
+        n.model.add_constraints(expr, name="Iron-air-duration")
 
     def freeze_capacities(n):
         """
@@ -1663,13 +1497,9 @@ if __name__ == "__main__":
 
     Nyears = 1  # years in simulation
     costs = prepare_costs(
-        cost_file=timescope(year)["costs_projection"],
-        USD_to_EUR=config["costs"]["USD2013_to_EUR2013"],
-        discount_rate=config["costs"]["discountrate"],
-        year=year,
-        Nyears=Nyears,
-        config=config,
-        lifetime=config["costs"]["lifetime"],
+        timescope(year)["costs_projection"],
+        snakemake.params.costs,
+        Nyears,
     )
 
     n_iterations = (
@@ -1683,7 +1513,7 @@ if __name__ == "__main__":
     with memory_logger(
         filename=getattr(snakemake.log, "memory", None), interval=30.0
     ) as mem:
-        strip_network(n, config)
+        strip_network(n, zone)
         cost_parametrization(n, config)
 
         shutdown_lineexp(n)

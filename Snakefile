@@ -99,6 +99,8 @@ rule make_summary:
 if config["solve_network"] == "solve":
 
     rule solve_network:
+        params:
+            costs=config["costs"],
         input:
             network=config[f'n_{year}_{config["time_sampling"]}'],
             costs="input/costs_{year}.csv",
